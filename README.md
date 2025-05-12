@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Python-3.8%2B-blue.svg" alt="Python Version">
   <img src="https://img.shields.io/badge/pandas-✓-orange.svg" alt="Pandas">
   <img src="https://img.shields.io/badge/matplotlib-✓-yellow.svg" alt="Matplotlib">
-  <img src="https://img.shields.io/github/last-commit/JeremyEltho/Sun_Devil?style=flat-square" alt="Last Commit">
+    <img src="https://img.shields.io/github/last-commit/JeremyEltho/Sun_Devil?style=flat-square" alt="Last Commit">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
 </p>
 
