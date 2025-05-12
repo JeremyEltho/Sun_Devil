@@ -124,7 +124,7 @@ class Config:
 <h2>👤 Author</h2>
 <p><strong>Jeremy Eltho</strong><br/>
 📚 Computer Science @ Arizona State University<br/>
-🔧 Drivetrain Engineer — Sun Devil Motorsports FSAE<br/>
+🔧 Drivetrain Engineer @ Sun Devil Motorsports FSAE<br/>
 📧 <a href="mailto:jeremyeltho@gmail.com">jeremyeltho@gmail.com</a><br/>
 🔗 <a href="https://linkedin.com/in/jeremyeltho">LinkedIn</a></p>
 
