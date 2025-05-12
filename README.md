@@ -114,9 +114,9 @@ class Config:
 <ul>
   <li>🏎️ FSAE drivetrain testing & torque bias analysis</li>
   <li>🤖 Robotics wheel behavior & collision recovery</li>
-  <li>📉 Post-race telemetry review</li>
-  <li>🧠 Engineering diagnostics for torque vectoring</li>
-  <li>🧼 Data smoothing for simulation/ML pipelines</li>
+  <li>📉 Testing telemetry review</li>
+  <li>🧠 Engineering diagnostics for differential tuning</li>
+  <li>🧼 Data smoothing for hoping in the future simulation/ML pipelines</li>
 </ul>
 
 <hr/>
@@ -133,4 +133,4 @@ class Config:
 <h2>📄 License</h2>
 <p>This project is intended for academic and personal use. Contact the author for commercial licensing or redistribution.</p>
 
-<p align="center">Made with ❤️, RPMs, and Python 🐍</p>
+<p align="center">Made with Python 🐍 and ChatGpt</p>
