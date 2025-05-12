@@ -133,4 +133,4 @@ class Config:
 <h2>📄 License</h2>
 <p>This project is intended for academic and personal use. Contact the author for commercial licensing or redistribution.</p>
 
-<p align="center">Made with Python 🐍 and ChatGpt🐐</p>
+<p align="center">Made with Python 🐍 and ChatGpt 🐐</p>
