@@ -1,4 +1,4 @@
-<h1 align="center">⚙️ Drivetrain Data Analysis Toolkit 🏁</h1>
+<h1 align="center">⚙️ Drivetrain Data Analysis code 🏁</h1>
 <h3 align="center">Analyze slip events, differential loads, and wheel speed behavior for FSAE and robotics performance</h3>
 
 <p align="center">
