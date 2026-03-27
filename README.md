@@ -1,41 +1,41 @@
-<h1 align="center">⚙️ Drivetrain Data Analysis Code 🏁</h1>
+<h1 align="center">Drivetrain Data Analysis</h1>
 <h3 align="center">Analyze slip events, differential loads, and wheel speed behavior for FSAE and robotics performance</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-blue.svg" alt="Python Version">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python Version">
   <img src="https://img.shields.io/badge/pandas-✓-orange.svg" alt="Pandas">
   <img src="https://img.shields.io/badge/matplotlib-✓-yellow.svg" alt="Matplotlib">
-    <img src="https://img.shields.io/github/last-commit/JeremyEltho/Sun_Devil?style=flat-square" alt="Last Commit">
+  <img src="https://img.shields.io/github/last-commit/JeremyEltho/Sun_Devil?style=flat-square" alt="Last Commit">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
 </p>
 
 <hr/>
 
-<h2>📌 Overview</h2>
+<h2>Overview</h2>
 <p>This Python-based toolkit processes rear wheel speed data from FSAE or robotics vehicles to detect:</p>
 <ul>
-  <li>🟥 <strong>Slip Events</strong> — sudden RPM changes</li>
-  <li>🟢 <strong>Differential Load</strong> — significant RPM imbalance</li>
-  <li>🧼 <strong>Z-Score Filtering</strong> — optional noise reduction</li>
-  <li>📈 <strong>Full Visualization</strong> — annotated plots with steering overlay</li>
+  <li><strong>Slip Events</strong> — sudden RPM changes</li>
+  <li><strong>Differential Load</strong> — significant RPM imbalance between rear wheels</li>
+  <li><strong>Z-Score Filtering</strong> — optional noise reduction</li>
+  <li><strong>Full Visualization</strong> — annotated dark-theme plots with steering overlay</li>
 </ul>
-<p>Developed for Sun Devil Motorsports’ drivetrain testing, it’s ideal for engineers and data enthusiasts seeking performance insights from wheel telemetry.</p>
+<p>Developed for Sun Devil Motorsports' drivetrain testing.</p>
 
 <hr/>
 
-<h2>🚀 How to Run</h2>
+<h2>How to Run</h2>
 <ol>
   <li><strong>Prepare Your Data:</strong> Ensure your <code>.csv</code> includes these columns:
     <ul>
-      <li><code>time (s)</code> ⏱️</li>
-      <li><code>rr wheel speed (rpm)</code> 🔶</li>
-      <li><code>rl wheel speed (rpm)</code> 🔷</li>
-      <li><em>(optional)</em> <code>steering (degrees)</code> 🕹️</li>
+      <li><code>time (s)</code></li>
+      <li><code>rr wheel speed (rpm)</code></li>
+      <li><code>rl wheel speed (rpm)</code></li>
+      <li><em>(optional)</em> <code>steering (degrees)</code></li>
     </ul>
     Place the file in the project folder and update <code>Config.INPUT_CSV_PATH</code> if needed.
   </li>
   <li><strong>Run the Script:</strong>
-    <pre><code>python drivetrain_analysis.py</code></pre>
+    <pre><code>python filter.py</code></pre>
   </li>
   <li><strong>Enter Thresholds When Prompted:</strong>
     <pre><code>
@@ -48,44 +48,44 @@ Slip detection threshold (e.g. 200)
 
 <hr/>
 
-<h2>📤 Outputs</h2>
+<h2>Outputs</h2>
 <ul>
   <li><code>cleaned_wheel_data.csv</code> – Filtered data with noise and invalid readings removed</li>
   <li><code>slip_events_report.csv</code> – Slip events exceeding jump threshold</li>
   <li><code>differential_load_events.csv</code> – Timepoints with RPM deltas beyond threshold</li>
-  <li><code>drivetrain.log</code> – Detailed processing logs, warnings, and errors</li>
+  <li><code>drivetrain.log</code> – Processing logs, warnings, and errors</li>
 </ul>
 
 <hr/>
 
-<h2>📦 Dependencies</h2>
+<h2>Dependencies</h2>
 <pre><code>pip install pandas matplotlib</code></pre>
 
 <hr/>
 
-<h2>🧾 Imports Used</h2>
+<h2>Imports Used</h2>
 <pre><code>import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import logging
 import os
-from typing import Tuple, Optional, Dict, Any, List
 from dataclasses import dataclass
 </code></pre>
 
 <hr/>
 
-<h2>📊 Visual Output</h2>
+<h2>Visual Output</h2>
 <ul>
-  <li>✅ Left & right rear wheel speeds plotted over time</li>
-  <li>❌ Slip event markers (red X)</li>
-  <li>🟢 Differential load markers (green dots or bars)</li>
-  <li>📈 Steering angle overlay (dashed green line)</li>
-  <li>🧭 Gridlines, axes, and legends auto-configured</li>
+  <li>Left and right rear wheel speeds plotted over time (raw + cleaned)</li>
+  <li>Slip event markers (red X)</li>
+  <li>Differential load markers (hollow green circles)</li>
+  <li>Steering angle overlay (dashed lavender line)</li>
+  <li>Differential load shading — fills red above threshold</li>
 </ul>
 
 <hr/>
 
-<h2>⚙️ Configuration</h2>
+<h2>Configuration</h2>
 <p>All runtime settings live in the <code>Config</code> class:</p>
 <pre><code>@dataclass
 class Config:
@@ -110,27 +110,27 @@ class Config:
 
 <hr/>
 
-<h2>🧪 Use Cases</h2>
+<h2>Use Cases</h2>
 <ul>
-  <li>🏎️ FSAE drivetrain testing & torque bias analysis</li>
-  <li>🤖 Robotics wheel behavior & collision recovery</li>
-  <li>📉 Post-race telemetry review</li>
-  <li>🧠 Engineering diagnostics for differential tuning</li>
-  <li>🧼 Data smoothing for simulation/ML pipelines</li>
+  <li>FSAE drivetrain testing and torque bias analysis</li>
+  <li>Robotics wheel behavior and collision recovery</li>
+  <li>Post-race telemetry review</li>
+  <li>Engineering diagnostics for differential tuning</li>
+  <li>Data smoothing for simulation and ML pipelines</li>
 </ul>
 
 <hr/>
 
-<h2>👤 Author</h2>
+<h2>Author</h2>
 <p><strong>Jeremy Eltho</strong><br/>
-📚 Computer Science @ Arizona State University<br/>
-🔧 Drivetrain Engineer @ Sun Devil Motorsports FSAE<br/>
-📧 <a href="mailto:jeremyeltho@gmail.com">jeremyeltho@gmail.com</a><br/>
-🔗 <a href="https://linkedin.com/in/jeremyeltho">LinkedIn</a></p>
+Computer Science @ Arizona State University<br/>
+Drivetrain Engineer @ Sun Devil Motorsports FSAE<br/>
+<a href="mailto:jeremyeltho@gmail.com">jeremyeltho@gmail.com</a><br/>
+<a href="https://linkedin.com/in/jeremyeltho">LinkedIn</a></p>
 
 <hr/>
 
-<h2>📄 License</h2>
+<h2>License</h2>
 <p>This project is released under the <a href="LICENSE">MIT License</a>.</p>
 
-<p align="center">Made with Python 🐍 and ChatGPT 🐐</p>
+<p align="center">Made with Python</p>

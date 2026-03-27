@@ -1,495 +1,303 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import logging
 import os
-from typing import Tuple, Optional, Dict, Any, List
 from dataclasses import dataclass
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("drivetrain.log"),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("drivetrain.log"), logging.StreamHandler()]
 )
-logger = logging.getLogger("Drivetrain")
+logger = logging.getLogger("drivetrain")
 
-# Configuration class for better organization
+
 @dataclass
 class Config:
-    # File paths
     INPUT_CSV_PATH: str = 'DrivetrainData_11.3.csv'
     OUTPUT_CLEANED_DATA: str = 'cleaned_wheel_data.csv'
     OUTPUT_SLIP_DATA: str = 'slip_events_report.csv'
     OUTPUT_DIFFERENTIAL_LOAD_DATA: str = 'differential_load_events.csv'
-    
-    # Column names
+
     TIME_COLUMN: str = 'time (s)'
     RIGHT_REAR_RPM: str = 'rr wheel speed (rpm)'
     LEFT_REAR_RPM: str = 'rl wheel speed (rpm)'
     STEERING_COLUMN: str = 'steering (degrees)'
-    
-    # Thresholds and defaults
+
     MINIMUM_RPM: float = 10
     MAXIMUM_RPM: float = 3000
     MAX_TIME_DIFFERENCE: float = 0.125
     TIME_BIN_SIZE: float = 0.125
     WINDOW_SIZE: int = 15
-    
-    # Default thresholds for user input
+
     DEFAULT_Z_THRESHOLD: float = 0.0
     DEFAULT_DIFF_THRESHOLD: float = 100.0
     DEFAULT_SLIP_THRESHOLD: float = 200.0
 
-# Create a global config object
+
 config = Config()
 
-def load_data(csv_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    
+CLR = {
+    'left':  '#4fc3f7',
+    'right': '#ff9800',
+    'slip':  '#ef5350',
+    'diff':  '#66bb6a',
+    'steer': '#ce93d8',
+    'raw':   '#444444',
+}
+
+
+def load_data(csv_path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     if not os.path.exists(csv_path):
-        logger.error(f"CSV file not found: {csv_path}")
-        raise FileNotFoundError(f"CSV file not found: {csv_path}")
-        
-    try:
-        data = pd.read_csv(csv_path)
-        logger.info(f"Successfully loaded data from {csv_path} with {len(data)} rows")
-    except Exception as e:
-        logger.error(f"Error reading {csv_path}: {e}")
-        raise
+        raise FileNotFoundError(f"CSV not found: {csv_path}")
 
-    # Make sure we have the essential columns
-    required_columns = [config.TIME_COLUMN, config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]
-    optional_columns = [config.STEERING_COLUMN]
-    
-    missing_required = [col for col in required_columns if col not in data.columns]
-    if missing_required:
-        error_msg = f"Missing required columns: {', '.join(missing_required)}"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-        
-    missing_optional = [col for col in optional_columns if col not in data.columns]
-    if missing_optional:
-        logger.warning(f"Missing optional columns: {', '.join(missing_optional)}")
+    data = pd.read_csv(csv_path)
+    logger.info(f"Loaded {len(data)} rows from {csv_path}")
 
-    # Sort data by time so everything is in chronological order
+    required = [config.TIME_COLUMN, config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]
+    missing = [c for c in required if c not in data.columns]
+    if missing:
+        raise ValueError(f"Missing columns: {', '.join(missing)}")
+
+    if config.STEERING_COLUMN not in data.columns:
+        logger.warning("Steering column not found — steering overlays will be skipped")
+
     data = data.sort_values(config.TIME_COLUMN)
+    raw = data.copy()
 
-    # Keep a copy of the raw, sorted data
-    raw_data = data.copy()
-
-    # Group time values into bins of width TIME_BIN_SIZE, then average them
     data[config.TIME_COLUMN] = (data[config.TIME_COLUMN] // config.TIME_BIN_SIZE) * config.TIME_BIN_SIZE
-    averaged_data = data.groupby(config.TIME_COLUMN, as_index=False).mean().round(3)
-    
-    logger.info(f"Data processed: {len(averaged_data)} rows after binning")
+    binned = data.groupby(config.TIME_COLUMN, as_index=False).mean().round(3)
+    logger.info(f"{len(binned)} rows after {config.TIME_BIN_SIZE}s binning")
 
-    return raw_data.round(3), averaged_data
+    return raw.round(3), binned
+
 
 def clean_data(data: pd.DataFrame, z_threshold: float, window_size: int = config.WINDOW_SIZE) -> pd.DataFrame:
-    """
-    Cleans up the data by removing out-of-range RPMs and applying a rolling z-score filter.
-    
-    Args:
-        data: DataFrame to clean
-        z_threshold: Threshold for z-score filtering (0 to disable)
-        window_size: Window size for rolling calculations
-        
-    Returns:
-        Cleaned DataFrame
-    """
-    # Convert the relevant columns to numeric, if they're not already
-    data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]] = data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]].apply(pd.to_numeric, errors='coerce')
-    
-    # Count rows before cleaning
-    initial_rows = len(data)
-    
-    # Remove rows with NaN values
-    data.dropna(subset=[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM], inplace=True)
-    if len(data) < initial_rows:
-        logger.info(f"Removed {initial_rows - len(data)} rows with NaN values")
+    data = data.copy()
+    data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]] = (
+        data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]].apply(pd.to_numeric, errors='coerce')
+    )
 
-    # Filter out RPM values that seem impossible or invalid
+    n = len(data)
+    data = data.dropna(subset=[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM])
     data = data[
-        (data[config.RIGHT_REAR_RPM].between(config.MINIMUM_RPM, config.MAXIMUM_RPM)) &
-        (data[config.LEFT_REAR_RPM].between(config.MINIMUM_RPM, config.MAXIMUM_RPM))
+        data[config.RIGHT_REAR_RPM].between(config.MINIMUM_RPM, config.MAXIMUM_RPM) &
+        data[config.LEFT_REAR_RPM].between(config.MINIMUM_RPM, config.MAXIMUM_RPM)
     ]
-    if len(data) < initial_rows:
-        logger.info(f"Removed {initial_rows - len(data)} rows with out-of-range RPM values")
+    logger.info(f"Removed {n - len(data)} invalid rows, {len(data)} remain")
 
-    # If the user specifies a z_threshold > 0, we also do a rolling z-score filter
     if z_threshold > 0:
-        logger.info(f"Applying z-score filter with threshold {z_threshold}")
-        rolling_means = data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]].rolling(window=window_size, center=True).mean()
-        rolling_stds = data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]].rolling(window=window_size, center=True).std().replace(0, 1)
-
-        # Calculate z-scores for each row
-        z_scores = (data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]] - rolling_means) / rolling_stds
-
-        # Only keep rows where the absolute z-score is within the threshold
-        rows_before = len(data)
-        data = data[(z_scores.abs() <= z_threshold).all(axis=1)]
-        logger.info(f"Z-score filter removed {rows_before - len(data)} rows")
+        means = data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]].rolling(window=window_size, center=True).mean()
+        stds  = data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]].rolling(window=window_size, center=True).std().replace(0, 1)
+        z = (data[[config.RIGHT_REAR_RPM, config.LEFT_REAR_RPM]] - means) / stds
+        before = len(data)
+        data = data[(z.abs() <= z_threshold).all(axis=1)]
+        logger.info(f"Z-score filter (thresh={z_threshold}) removed {before - len(data)} rows")
 
     return data.round(3)
 
-def detect_differential_load(data: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """
-    Flags data points where the difference between Right Rear and Left Rear wheel speeds
-    exceeds the given threshold.
-    
-    Args:
-        data: DataFrame to analyze
-        threshold: RPM difference threshold
-        
-    Returns:
-        DataFrame containing only the rows where differential load was detected
-    """
-    diff = (data[config.RIGHT_REAR_RPM] - data[config.LEFT_REAR_RPM]).abs()
-    diff_data = data[diff > threshold].copy()
 
-    # Save that difference in a new column for convenience
-    diff_data['difference'] = diff[diff > threshold]
-    
-    logger.info(f"Detected {len(diff_data)} differential load events with threshold {threshold}")
-    return diff_data.round(3)
+def detect_differential_load(data: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    diff = (data[config.RIGHT_REAR_RPM] - data[config.LEFT_REAR_RPM]).abs()
+    events = data[diff > threshold].copy()
+    events['difference'] = diff[diff > threshold]
+    logger.info(f"{len(events)} differential load events (thresh={threshold} RPM)")
+    return events.round(3)
+
 
 def detect_slip_events(data: pd.DataFrame, slip_threshold: float) -> pd.DataFrame:
-    """
-    Finds 'slips' by looking for sudden jumps in either wheel's RPM,
-    provided the time gap between consecutive measurements is small.
-    
-    Args:
-        data: DataFrame to analyze
-        slip_threshold: RPM jump threshold
-        
-    Returns:
-        DataFrame containing only the rows where slip events were detected
-    """
-    # Sort by time, reset index for clean consecutive rows
     data = data.sort_values(config.TIME_COLUMN).reset_index(drop=True)
-
-    # Time difference between consecutive rows
     data['time_gap'] = data[config.TIME_COLUMN].diff().round(3)
+    data['rr_diff']  = data[config.RIGHT_REAR_RPM].diff().round(3)
+    data['rl_diff']  = data[config.LEFT_REAR_RPM].diff().round(3)
 
-    # Compare how much the RPM changes from one reading to the next
-    data['rr_diff'] = data[config.RIGHT_REAR_RPM].diff().round(3)
-    data['rl_diff'] = data[config.LEFT_REAR_RPM].diff().round(3)
-
-    # We define a slip if the difference in wheel speed is bigger than slip_threshold
-    # AND the time gap is not too large
-    slip_data = data[
+    events = data[
         (data['time_gap'] <= config.MAX_TIME_DIFFERENCE) &
-        (
-            (data['rr_diff'].abs() > slip_threshold) |
-            (data['rl_diff'].abs() > slip_threshold)
-        )
+        (data['rr_diff'].abs().gt(slip_threshold) | data['rl_diff'].abs().gt(slip_threshold))
     ].copy()
-    
-    logger.info(f"Detected {len(slip_data)} slip events with threshold {slip_threshold}")
-    return slip_data.round(3)
 
-def filter_by_steering(data: pd.DataFrame, steering_col: str = config.STEERING_COLUMN, 
-                      min_angle: float = -9999, max_angle: float = 9999) -> pd.DataFrame:
-    """
-    Filters data to only keep rows where the steering value is within [min_angle, max_angle].
-    
-    Args:
-        data: DataFrame to filter
-        steering_col: Name of the steering column
-        min_angle: Minimum steering angle to keep
-        max_angle: Maximum steering angle to keep
-        
-    Returns:
-        Filtered DataFrame
-    """
-    if steering_col not in data.columns:
-        logger.warning(f"Steering column '{steering_col}' not found, returning unfiltered data")
-        return data
-        
-    rows_before = len(data)
-    filtered_data = data[(data[steering_col] >= min_angle) & (data[steering_col] <= max_angle)]
-    logger.info(f"Steering filter removed {rows_before - len(filtered_data)} rows")
-    
-    return filtered_data
+    logger.info(f"{len(events)} slip events (thresh={slip_threshold} RPM)")
+    return events.round(3)
 
-# Split the plotting function into smaller, more focused functions
-def plot_wheel_speed(ax, data, wheel_col, title, slip_data=None, differential_data=None):
-    """Helper function to plot a single wheel's speed with markers for events"""
+
+# ── plotting ────────────────────────────────────────────────────────────────
+
+def _apply_style():
+    plt.style.use('dark_background')
+    plt.rcParams.update({
+        'axes.facecolor':    '#111111',
+        'figure.facecolor':  '#0d0d0d',
+        'axes.edgecolor':    '#2a2a2a',
+        'grid.color':        '#1e1e1e',
+        'grid.linewidth':    0.8,
+        'axes.labelcolor':   '#aaaaaa',
+        'xtick.color':       '#666666',
+        'ytick.color':       '#666666',
+        'text.color':        '#dddddd',
+        'legend.framealpha': 0.25,
+        'legend.edgecolor':  '#333333',
+        'font.family':       'monospace',
+        'font.size':         9,
+    })
+
+
+def _twin_steer(ax, data):
+    """Overlay steering angle on a secondary y-axis. Returns the twin axis."""
+    ax2 = ax.twinx()
+    if config.STEERING_COLUMN in data.columns:
+        ax2.plot(
+            data[config.TIME_COLUMN], data[config.STEERING_COLUMN],
+            color=CLR['steer'], linewidth=1.0, alpha=0.55, linestyle='--', label='Steering (°)'
+        )
+        ax2.set_ylabel('Steering (°)', color=CLR['steer'], fontsize=8)
+        ax2.tick_params(axis='y', colors=CLR['steer'], labelsize=7)
+    return ax2
+
+
+def plot_wheel_speed(ax, raw_data, cleaned_data, wheel_col, label, color, slip_data=None, diff_data=None):
     ax.plot(
-        data[config.TIME_COLUMN], 
-        data[wheel_col],
-        label=f'Cleaned {wheel_col}', 
-        linewidth=1.5, 
-        color='grey',
-        zorder=1
+        raw_data[config.TIME_COLUMN], raw_data[wheel_col],
+        color=CLR['raw'], linewidth=0.5, alpha=0.45, zorder=1, label='Raw'
+    )
+    ax.plot(
+        cleaned_data[config.TIME_COLUMN], cleaned_data[wheel_col],
+        color=color, linewidth=1.4, zorder=2, label=label
     )
 
-    # Mark slip events with an 'x'
     if slip_data is not None and not slip_data.empty:
         ax.scatter(
-            slip_data[config.TIME_COLUMN], 
-            slip_data[wheel_col],
-            marker='x', 
-            s=90, 
-            label='Slip', 
-            color='red',
-            zorder=2
+            slip_data[config.TIME_COLUMN], slip_data[wheel_col],
+            marker='x', s=55, color=CLR['slip'], linewidths=1.4, zorder=4, label='Slip'
         )
 
-    # Mark differential load events with '.'
-    diff_times = set(differential_data[config.TIME_COLUMN]) if differential_data is not None and not differential_data.empty else set()
-    diff_wheel = data[data[config.TIME_COLUMN].isin(diff_times)]
-    if not diff_wheel.empty:
-        ax.scatter(
-            diff_wheel[config.TIME_COLUMN], 
-            diff_wheel[wheel_col],
-            marker='.', 
-            s=70, 
-            facecolors='none', 
-            edgecolors='green',
-            label='Diff Load', 
-            linewidths=2
-        )
+    if diff_data is not None and not diff_data.empty:
+        matched = cleaned_data[cleaned_data[config.TIME_COLUMN].isin(diff_data[config.TIME_COLUMN])]
+        if not matched.empty:
+            ax.scatter(
+                matched[config.TIME_COLUMN], matched[wheel_col],
+                marker='o', s=28, facecolors='none', edgecolors=CLR['diff'],
+                linewidths=1.1, zorder=3, label='Diff Load'
+            )
 
-    ax.set_title(title)
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Wheel Speed (rpm)')
-    ax.legend(loc='best')
-    ax.grid(True)
+    ax.set_ylabel('RPM', fontsize=8)
+    ax.set_xlabel('Time (s)', fontsize=8)
+    ax.legend(fontsize=7, loc='upper right')
+    ax.grid(True, zorder=0)
+    ax.yaxis.set_minor_locator(ticker.AutoMinorLocator())
 
-def plot_wheel_speeds_and_steering(ax_speed, data):
-    """Helper function to plot both wheel speeds and steering angle"""
-    ax_speed.set_title('Wheel Speed & Steering Angle Over Time')
 
-    # Plot the two wheel speeds
-    ax_speed.plot(
-        data[config.TIME_COLUMN], 
-        data[config.LEFT_REAR_RPM],
-        label='Left Wheel Speed', 
-        linewidth=2.0, 
-        color='blue'
+def plot_wheel_speeds_and_steering(ax, data):
+    ax.plot(data[config.TIME_COLUMN], data[config.LEFT_REAR_RPM],
+            color=CLR['left'], linewidth=1.5, label='Left Rear')
+    ax.plot(data[config.TIME_COLUMN], data[config.RIGHT_REAR_RPM],
+            color=CLR['right'], linewidth=1.5, label='Right Rear')
+    ax.set_ylabel('RPM', fontsize=8)
+    ax.set_xlabel('Time (s)', fontsize=8)
+    ax.grid(True, zorder=0)
+
+    ax2 = _twin_steer(ax, data)
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, fontsize=7, loc='upper right')
+
+
+def plot_differential_load(ax, data, diff_data, threshold):
+    t = data[config.TIME_COLUMN]
+    rpm_diff = (data[config.RIGHT_REAR_RPM] - data[config.LEFT_REAR_RPM]).abs()
+
+    ax.plot(t, rpm_diff, color='#888888', linewidth=1.2, zorder=2, label='|RR − LR|')
+    ax.fill_between(t, rpm_diff, alpha=0.12, color='#888888', zorder=1)
+    ax.fill_between(
+        t, rpm_diff, threshold,
+        where=rpm_diff > threshold,
+        color=CLR['slip'], alpha=0.35, zorder=3, label=f'> {threshold:.0f} RPM'
     )
-    ax_speed.plot(
-        data[config.TIME_COLUMN], 
-        data[config.RIGHT_REAR_RPM],
-        label='Right Wheel Speed', 
-        linewidth=2.0, 
-        color='orange'
-    )
-    ax_speed.set_xlabel('Time (s)')
-    ax_speed.set_ylabel('Wheel Speed (rpm)')
-    ax_speed.grid(True)
+    ax.axhline(threshold, color=CLR['slip'], linewidth=0.8, linestyle=':', alpha=0.6)
 
-    # Steering goes on the twin y-axis
-    ax_steer = ax_speed.twinx()
-    if config.STEERING_COLUMN in data.columns:
-        ax_steer.plot(
-            data[config.TIME_COLUMN], 
-            data[config.STEERING_COLUMN],
-            '--', 
-            label='Steering (deg)', 
-            linewidth=1.8, 
-            color='green'
-        )
-        ax_steer.set_ylabel('Steering (degrees)')
+    ax.set_ylabel('RPM Δ', fontsize=8)
+    ax.set_xlabel('Time (s)', fontsize=8)
+    ax.grid(True, zorder=0)
+    ax.yaxis.set_minor_locator(ticker.AutoMinorLocator())
 
-    # Combine legends for both axes
-    lines_1, labels_1 = ax_speed.get_legend_handles_labels()
-    if config.STEERING_COLUMN in data.columns:
-        lines_2, labels_2 = ax_steer.get_legend_handles_labels()
-    else:
-        lines_2, labels_2 = [], []
-    ax_speed.legend(lines_1 + lines_2, labels_1 + labels_2, loc='best')
+    ax2 = _twin_steer(ax, data)
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, fontsize=7, loc='upper right')
 
-def plot_differential_load(ax_diff, data, differential_data):
-    """Helper function to plot differential load and steering"""
-    ax_diff.set_title('Differential Load & Steering')
-    ax_diff.set_xlabel('Time (s)')
-    ax_diff.set_ylabel('RPM Difference')
-    ax_diff.grid(True)
+    if diff_data is None or diff_data.empty:
+        ax.text(0.5, 0.5, 'No events detected', ha='center', va='center',
+                transform=ax.transAxes, color='#555555', fontsize=10)
 
-    # Another twin axis for Steering
-    ax_diff_steer = ax_diff.twinx()
-    ax_diff_steer.set_ylabel('Steering (degrees)')
 
-    # Plot steering in a similar style
-    if config.STEERING_COLUMN in data.columns:
-        ax_diff_steer.plot(
-            data[config.TIME_COLUMN],
-            data[config.STEERING_COLUMN],
-            '--', label='Steering (deg)',
-            linewidth=1,
-            color='blue'
-        )
+def plot_all_subplots(raw_data, cleaned_data, slip_data, diff_data, diff_threshold):
+    _apply_style()
 
-    # Plot the difference in RPM on the main axis
-    rpm_diff_all = (data[config.RIGHT_REAR_RPM] - data[config.LEFT_REAR_RPM]).abs()
-    ax_diff.plot(
-        data[config.TIME_COLUMN],
-        rpm_diff_all,
-        label='Differential (rpm)',
-        linewidth=1.5,
-        color='grey'
-    )
+    fig, axes = plt.subplots(2, 2, figsize=(16, 9), constrained_layout=True)
+    fig.suptitle('Sun Devil Motorsports — Rear Drivetrain Analysis', fontsize=12, fontweight='bold')
 
-    # Use vertical bars at the bottom of the chart for differential load detection times
-    if differential_data is not None and not differential_data.empty:
-        # Label just the first bar so the legend doesn't repeat
-        first_time = differential_data[config.TIME_COLUMN].iloc[0]
-        ax_diff.axvline(
-            first_time,
-            color='red',
-            ymin=0.0,
-            ymax=0.001,
-            label='Detected Load (bars)',
-            linewidth=.25
-        )
-        # Plot the rest 
-        for t in differential_data[config.TIME_COLUMN].iloc[1:]:
-            ax_diff.axvline(t, color='red', ymin=0.0, ymax=0.1, linewidth=1)
-    else:
-        ax_diff.text(
-            0.5, 0.5,
-            'No Differential Load Events Found',
-            horizontalalignment='center',
-            verticalalignment='center',
-            transform=ax_diff.transAxes
-        )
-
-    # Merge legends
-    lines_1, labels_1 = ax_diff.get_legend_handles_labels()
-    if config.STEERING_COLUMN in data.columns:
-        lines_2, labels_2 = ax_diff_steer.get_legend_handles_labels()
-    else:
-        lines_2, labels_2 = [], []
-    ax_diff.legend(lines_1 + lines_2, labels_1 + labels_2, loc='best')
-
-def plot_all_subplots(raw_data: pd.DataFrame, cleaned_data: pd.DataFrame, 
-                     slip_data: pd.DataFrame, differential_data: pd.DataFrame) -> None:
-    """
-    Creates a figure with four subplots showing wheel speeds, slip events, and differential load.
-    
-    Args:
-        raw_data: Raw data DataFrame
-        cleaned_data: Cleaned data DataFrame
-        slip_data: DataFrame containing slip events
-        differential_data: DataFrame containing differential load events
-    """
-    fig, axes = plt.subplots(2, 2, figsize=(14, 8))
-    
-    # Plot left wheel
     plot_wheel_speed(
-        axes[0, 0], 
-        cleaned_data, 
-        config.LEFT_REAR_RPM, 
-        'Left Rear Wheel Speed Over Time',
-        slip_data,
-        differential_data
+        axes[0, 0], raw_data, cleaned_data,
+        config.LEFT_REAR_RPM, 'Left Rear', CLR['left'], slip_data, diff_data
     )
+    axes[0, 0].set_title('Left Rear Wheel Speed', fontsize=10)
 
-    # Plot right wheel
     plot_wheel_speed(
-        axes[0, 1], 
-        cleaned_data, 
-        config.RIGHT_REAR_RPM, 
-        'Right Rear Wheel Speed Over Time',
-        slip_data,
-        differential_data
+        axes[0, 1], raw_data, cleaned_data,
+        config.RIGHT_REAR_RPM, 'Right Rear', CLR['right'], slip_data, diff_data
     )
+    axes[0, 1].set_title('Right Rear Wheel Speed', fontsize=10)
 
-    # Plot wheel speeds and steering
     plot_wheel_speeds_and_steering(axes[1, 0], cleaned_data)
+    axes[1, 0].set_title('Wheel Speeds + Steering', fontsize=10)
 
-    # Plot differential load
-    plot_differential_load(axes[1, 1], cleaned_data, differential_data)
-    
-    # Make it all fit nicely
-    plt.tight_layout()
+    plot_differential_load(axes[1, 1], cleaned_data, diff_data, diff_threshold)
+    axes[1, 1].set_title('Differential Load', fontsize=10)
+
     plt.show()
 
-def get_user_input(prompt: str, default: float) -> float:
-    """
-    Safely get numeric input from the user with a default value.
-    
-    Args:
-        prompt: Prompt to show the user
-        default: Default value to use if input is invalid
-        
-    Returns:
-        User-provided value or default
-    """
+
+# ── main ─────────────────────────────────────────────────────────────────────
+
+def get_threshold(prompt: str, default: float) -> float:
     try:
-        value = float(input(prompt))
-        if value < 0:
-            logger.warning(f"Negative value provided: {value}, using default: {default}")
-            return default
-        return value
+        val = float(input(prompt))
+        return val if val >= 0 else default
     except ValueError:
-        logger.warning(f"Invalid input, using default: {default}")
         return default
 
-def main() -> None:
-    """
-    Main function that:
-    1) Asks the user for thresholds
-    2) Loads and cleans the data
-    3) Detects differential load and slip events
-    4) Saves those results
-    5) Plots the data in four subplots
-    """
-    logger.info("Starting Drivetrain analysis")
-    
-    # Get user input with validation
-    z_threshold = get_user_input(
-        f"Enter z-score threshold (0 = none) [{config.DEFAULT_Z_THRESHOLD}]: ", 
-        config.DEFAULT_Z_THRESHOLD
-    )
-    
-    diff_threshold = get_user_input(
-        f"Enter rpm difference threshold for differential load [{config.DEFAULT_DIFF_THRESHOLD}]: ", 
-        config.DEFAULT_DIFF_THRESHOLD
-    )
-    
-    slip_threshold = get_user_input(
-        f"Enter rpm jump threshold for slip detection [{config.DEFAULT_SLIP_THRESHOLD}]: ", 
-        config.DEFAULT_SLIP_THRESHOLD
-    )
 
-    # Load our CSV data
+def main():
+    logger.info("Starting drivetrain analysis")
+
+    z_thresh    = get_threshold(f"Z-score threshold (0 = off) [{config.DEFAULT_Z_THRESHOLD}]: ", config.DEFAULT_Z_THRESHOLD)
+    diff_thresh = get_threshold(f"Differential load threshold RPM [{config.DEFAULT_DIFF_THRESHOLD}]: ", config.DEFAULT_DIFF_THRESHOLD)
+    slip_thresh = get_threshold(f"Slip detection threshold RPM [{config.DEFAULT_SLIP_THRESHOLD}]: ", config.DEFAULT_SLIP_THRESHOLD)
+
     try:
-        raw_data, averaged_data = load_data(config.INPUT_CSV_PATH)
-        if averaged_data.empty:
-            logger.error("No data was loaded. Exiting...")
-            return
+        raw_data, binned = load_data(config.INPUT_CSV_PATH)
     except Exception as e:
-        logger.error(f"Failed to load data: {e}")
+        logger.error(e)
         return
 
-    # Clean up our data
-    cleaned_data = clean_data(averaged_data, z_threshold)
-    cleaned_data.to_csv(config.OUTPUT_CLEANED_DATA, index=False)
-    logger.info(f"Cleaned data saved to: {config.OUTPUT_CLEANED_DATA}")
+    if binned.empty:
+        logger.error("No data loaded, exiting")
+        return
 
-    # Flag spots where the difference in wheel speed is too large
-    differential_data = detect_differential_load(cleaned_data, diff_threshold)
-    differential_data.to_csv(config.OUTPUT_DIFFERENTIAL_LOAD_DATA, index=False)
-    logger.info(f"Differential load events saved to: {config.OUTPUT_DIFFERENTIAL_LOAD_DATA}")
+    cleaned = clean_data(binned, z_thresh)
+    cleaned.to_csv(config.OUTPUT_CLEANED_DATA, index=False)
 
-    # Flag slips (quick jumps in RPM)
-    slip_data = detect_slip_events(cleaned_data, slip_threshold)
-    slip_data.to_csv(config.OUTPUT_SLIP_DATA, index=False)
-    logger.info(f"Slip events saved to: {config.OUTPUT_SLIP_DATA}")
+    diff_events = detect_differential_load(cleaned, diff_thresh)
+    diff_events.to_csv(config.OUTPUT_DIFFERENTIAL_LOAD_DATA, index=False)
 
-    # Generate our four-subplot figure
-    plot_all_subplots(raw_data, cleaned_data, slip_data, differential_data)
-    
-    logger.info("Analysis completed successfully")
+    slip_events = detect_slip_events(cleaned, slip_thresh)
+    slip_events.to_csv(config.OUTPUT_SLIP_DATA, index=False)
+
+    logger.info(f"Results saved: {config.OUTPUT_CLEANED_DATA}, {config.OUTPUT_SLIP_DATA}, {config.OUTPUT_DIFFERENTIAL_LOAD_DATA}")
+
+    plot_all_subplots(raw_data, cleaned, slip_events, diff_events, diff_thresh)
+    logger.info("Done")
+
 
 if __name__ == '__main__':
     main()
-
-"""
-Basically know what rpms u are defining as differntating as load 
-"""
