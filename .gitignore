@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Analysis outputs
+outputs/
+*.log
+cleaned_wheel_data.csv
+slip_events_report.csv
+differential_load_events.csv
+derived_channels.csv
+
+# OS
+.DS_Store
